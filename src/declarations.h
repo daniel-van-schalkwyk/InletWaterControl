@@ -1,8 +1,10 @@
 #ifndef declarations_h
 #define declarations_h
 // Import all necessary libraries
+#include <Arduino.h>
 #include <DallasTemperature.h>
 #include <OneWire.h>
+#include <U8g2lib.h>
 #include <WiFiNINA.h>
 #include <ArduinoMqttClient.h>
 #include <Adafruit_PWMServoDriver.h>
@@ -10,8 +12,8 @@
 #include <Adafruit_SSD1306.h>
 #include <wifiDetails.h>
 // Define all necessary pins used by Arduino
-#define geyserPowerSetPin           10
-#define geyserPowerResetPin         11
+#define geyserPowerSetPin           7
+#define geyserPowerResetPin         8
 #define freezerSetPin               12
 #define freezerResetPin             13
 #define tempBusPin                  2
@@ -21,21 +23,27 @@
 #define preInletValveFeedbackPin    3
 #define geyserWaterTempPin          A1
 #define servoPosFeedbackPin         A6
+#define encoderDtPin                10
+#define encoderClkPin               11
+#define encoderSwPin                9
 // Define parameters for interrupt timer
 #define CPU_HZ 48000000
 #define TIMER_PRESCALER_DIV 1024
 // Define enumerations
-enum systemStates{Off, On};
+enum actuatorStates{Off, On};
 enum valveState{Closed, Open};
 enum valveNumber{geyserValve, mainSupplyValve, PreInletValve, mixingValve};
 enum PID_out_type{angle_, PWM};
 enum highPowerLoad{geyser, freezer};
+enum encoderDirection : uint8_t {CCW, CW, still};
+enum systemStates{idle, tempPrep, tempSelect};
 // Define parameters used by OLED screen
 #define SCREEN_WIDTH            128     // OLED display width, in pixels
 #define SCREEN_HEIGHT           64      // OLED display height, in pixels
 #define OLED_RESET              -1      // Reset pin # (or -1 if sharing Arduino reset pin)
 // Declare all instances 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+U8G2_SH1106_128X32_VISIONOX_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 Adafruit_PWMServoDriver servoPWM = Adafruit_PWMServoDriver(0x40); // PWM servo motor driver object for all servo motors
 OneWire SystemTemp(tempBusPin);
 OneWire CalibratorTemp(tempCalibratorPin);
@@ -47,9 +55,13 @@ bool freezerLatchFlag = false;
 bool regulationFlag = true;
 bool timerSampleFlag = false;
 bool firstTempRequest = true;
+int systemState = idle;
+volatile bool encoderClkFlag = false;
+volatile bool encoderSwFlag = false;
+volatile bool encoderDtFlag = false; 
 int tempResolution = 12;    // This is necessary to have a 5 Hz update frequency 
 const int servoFREQUENCY = 50;
-const unsigned long serialSpeed = 9600;
+const unsigned long serialSpeed = 115200;
 double inletTempMeas = 0.00;
 double inletTempCal = 0.00;
 double inletSetTemp = 20;
@@ -64,6 +76,10 @@ int16_t ServoPwmTick = MIN_GV_servo;
 const uint8_t servoChannel = 0;
 int servoUpdateFrequency = 5; // Frequency of servo control system in Hz
 bool dirFlag = true;
+volatile int encoderCounter = 0;
+volatile unsigned long encoderClkTick = 0;
+volatile unsigned long encoderSwTick = 0;
+bool previousStateCLK;
 // Declare Wifi stuff...
 int status = WL_IDLE_STATUS;
 WiFiClient wifiClient;
@@ -118,4 +134,10 @@ String getSubString(String data, char separator, int index);
 void connectToWifi();
 void receivedMqttMessage(int messageSize);
 void connectToMQTTbroker();
+void configureInterrupts();
+uint8_t checkEncoderDirection();
+void encoderSwHandler();
+void encoderDtHandler();
+void encoderClkHandler();
+void setTemperatureMenu();
 #endif

@@ -1,28 +1,42 @@
-#include <Arduino.h>
 #include <declarations.h>
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(serialSpeed);
-  configurePins();
-  oneWireSetup();
-  servoMotorSetup();
-  startTimer(servoUpdateFrequency);
+  // configurePins();
+  // oneWireSetup();
+  // servoMotorSetup();
+  // startTimer(servoUpdateFrequency);
   displaySetup();
-  connectToWifi();
+  // // connectToWifi();
+  // previousStateCLK = digitalRead(encoderClkPin);
+  // Serial.print("Setup Complete");
+
 }
 
 void loop() {
+  findOneWireDevices(4);
+  delay(2000);
   // put your main code here, to run repeatedly:
-  if(Serial.available() > 0)
-  {
-    readSerialMessage(Serial.readStringUntil(0x10));
-  }
-  else
-  {
-    calibrateServos();
-    // controlMainGeyserInletTemp(inletSetTemp);
-  }
+  // if(Serial.available() > 0)
+  // {
+  //   readSerialMessage(Serial.readStringUntil(0x10));
+  // }
+  // else
+  // {
+  //   // calibrateServos();
+  //   // servoPWM.setPWM(0, 0, MIN_GV_servo);
+  //   // delay(100);
+  //   // Serial.println(getServoAngle());
+  //   // controlMainGeyserInletTemp(inletSetTemp);
+
+  //   if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
+  //   {
+  //     Serial.println("Switch triggered...");
+  //     systemState = systemStates::tempSelect;
+  //     setTemperatureMenu();
+  //   }
+  // }
 }
 
 void readSerialMessage(String serialMessage)
@@ -124,6 +138,20 @@ void configurePins()
   pinMode(preInletValveFeedbackPin, INPUT);
   pinMode(servoPosFeedbackPin, INPUT);
   analogReadResolution(12); // Set analgue pin resolution to 12 bits
+  configureInterrupts();
+}
+
+/*! Function description
+  @brief  This function is used to configure the appropriate interrupt pins of the overall system.
+*/
+void configureInterrupts() 
+{
+  pinMode(encoderClkPin, INPUT);
+  pinMode(encoderDtPin, INPUT);
+  pinMode(encoderSwPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(encoderSwPin), encoderSwHandler, FALLING);
+  attachInterrupt(digitalPinToInterrupt(encoderDtPin), encoderDtHandler, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(encoderClkPin), encoderClkHandler, CHANGE);
 }
 
 /*! Function description
@@ -145,7 +173,7 @@ void controlMainGeyserInletTemp(double inletSetTemp)
   {
     timerSampleFlag = false;
     servoPWM.setPWM(servoChannel, 0, ServoPwmTick);
-    double currentServoAngle = mapDouble(getServoAngle(), feedback0, feedback90, 0, 90);
+    double currentServoAngle = getServoAngle();
     Serial.println(currentServoAngle);
     if(firstTempRequest)
     {
@@ -176,11 +204,22 @@ void controlMainGeyserInletTemp(double inletSetTemp)
       }
     }
     // print to LED screen
-    display.clearDisplay();
-    display.println("Temperature: " + String(inletTempCal));
-    display.setCursor(0, 10);
-    display.println("Geyser Temp: " + String(geyserWaterTemp));
-    display.display();
+    // display.clearDisplay();
+    // display.println("Temperature: " + String(inletTempCal));
+    // display.setCursor(0, 10);
+    // display.println("Geyser Temp: " + String(geyserWaterTemp));
+    // display.display();
+    u8g2.clearDisplay();
+    u8g2.setFont(u8g2_font_6x10_tr);
+    u8g2.firstPage();
+    do 
+    {
+      u8g2.setCursor(0, 10);
+      u8g2.print("Temperature = " + String(inletTempCal));
+      u8g2.setCursor(0, 20);
+      u8g2.println("Geyser Temp: " + String(geyserWaterTemp));
+    } 
+    while ( u8g2.nextPage() );
   }
 }
 
@@ -241,15 +280,15 @@ void calibrateServos()
     else  
       ServoPwmTick--;
   }
-  delay(50);
+  delay(100);
+  servoPWM.setPWM(0, 0, ServoPwmTick);
 }
 
 double getServoAngle()
 {
   double adcInServo = analogRead(servoPosFeedbackPin);
   adcInServo *= 3.30/max12BitNum;
-  // Serial.println(adcInServo);
-  return adcInServo;
+  return mapDouble(adcInServo, feedback0, feedback90, 0, 90);
 }
 
 void actuateServo(int valveNum, double servoAngle)
@@ -341,25 +380,36 @@ void calibrateSensorBus()
 */
 void displaySetup()
 {
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) 
-  { 
-    Serial.println(F("OLED screen failed..."));
-  }
-  else
+  if(u8g2.begin())
   {
-    // Clear the buffer
-    display.clearDisplay();
-    delay(1);
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    display.setCursor(0, 0);
-    // Display static text
-    display.println("OLED screen ready!");
-    display.setCursor(0, 10);
-    display.println("Current State: IDLE");
-    display.display();
-    delay(1);
+    u8g2.clearDisplay();
+    u8g2.setFont(u8g2_font_5x8_tr);
+    u8g2.firstPage();
+    do 
+    {
+      u8g2.setCursor(45, 10);
+      u8g2.print("Welcome!");
+      u8g2.setCursor(0, 20);
+      u8g2.println("Inlet water controller :)");
+    } 
+    while ( u8g2.nextPage() );
   }
+  
+  // if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) 
+  // { 
+  //  // Clear the buffer
+  //   display.clearDisplay();
+  //   delay(1);
+  //   display.setTextSize(1);
+  //   display.setTextColor(WHITE);
+  //   display.setCursor(0, 0);
+  //   // Display static text
+  //   display.println("OLED screen ready!");
+  //   display.setCursor(0, 10);
+  //   display.println("Current State: IDLE");
+  //   display.display();
+  //   delay(1);
+  // }
 }
 
 uint8_t findOneWireDevices(int pin)
@@ -388,6 +438,9 @@ uint8_t findOneWireDevices(int pin)
     Serial.println("};");
     Serial.print("// nr devices found: ");
     Serial.println(count);
+  }
+  else{
+    Serial.println("Nothing found");
   }
   return count;
 }
@@ -495,4 +548,72 @@ void receivedMqttMessage(int messageSize)
   Serial.println(mqttReceivedMessage);
   Serial.println();
   Serial.println();
+}
+
+uint8_t checkEncoderDirection()
+{
+  uint8_t direction = still;
+  // Read the current state of inputCLK
+  bool currentStateCLK = digitalRead(encoderClkPin);
+  // If the previous and the current state of the inputCLK are different then a pulse has occured
+  if (currentStateCLK != previousStateCLK)
+  { 
+    // If the inputDT state is different than the inputCLK state then 
+    // the encoder is rotating counterclockwise
+    if (digitalRead(encoderDtPin) != currentStateCLK) { 
+      encoderCounter--;
+      direction = CCW;
+      
+    } else {
+      // Encoder is rotating clockwise
+      encoderCounter++;
+      direction = CW;
+    }
+  } 
+  // Update previousStateCLK with the current state
+  previousStateCLK = currentStateCLK; 
+  return direction;
+}
+
+void encoderClkHandler()
+{
+  encoderClkFlag = true;
+  encoderClkTick = millis();
+}
+
+void encoderDtHandler()
+{
+  encoderDtFlag = true;
+}
+
+void encoderSwHandler()
+{
+  encoderSwFlag = true;
+  encoderSwTick = millis();
+}
+
+void setTemperatureMenu()
+{
+  if(encoderSwFlag)
+  {
+    if (encoderClkFlag && (millis() - encoderClkTick >= 2))
+    {
+      if(digitalRead(encoderDtPin) != digitalRead(encoderClkPin)) 
+      { 
+        encoderCounter++;
+      } 
+      else // Encoder is rotating clockwise
+      {
+        encoderCounter--;
+      }
+      encoderClkFlag = false;
+    }
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Adjust inlet set temp:");
+    display.setCursor(0, 10);
+    display.println("Inlet Temp: " + String(encoderCounter) + " degC");
+    display.display();
+  }
+  encoderSwFlag = false;
 }
