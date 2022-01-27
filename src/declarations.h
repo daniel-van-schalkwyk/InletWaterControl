@@ -64,6 +64,7 @@ volatile bool encoderClkFlag = false;
 volatile bool encoderSwFlag = false;
 volatile bool encoderDtFlag = false; 
 volatile int geyserTempUpdateCounter = 0;
+volatile int freezerTempUpdateCounter = 0;
 const double geyserThermistorDisconnected = -1;
 const double geyserWaterDeadband = 1.5;
 const double inletTempSatisfactionMargin = 0.5;
@@ -76,7 +77,7 @@ const unsigned long serialSpeed = 115200;
 double inletTempMeas = 0.00;
 double inletTempCal = 0.00;
 double inletSetTemp = 20;
-double geyserSetTemp = 30;
+double geyserSetTemp = 40;  // This may change a abit according to the required outlet target
 // Define local temperature measurement variables
 double localOutletTemp = 0.00;
 double freezerChamberTemp = 0.00;
@@ -160,5 +161,4 @@ void setTemperatureMenu();
 void controlChestFreezerPower();
 void controlServoValve();
 void updateDisplay();
-int setSystemState();
 #endif

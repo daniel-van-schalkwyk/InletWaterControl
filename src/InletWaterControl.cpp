@@ -172,7 +172,7 @@ void getAllTemperatures()
 */
 void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)  
 {
-  if(geyserTempUpdateCounter >= (5*20))  // Update geyser element state every 5 seconds 
+  if(geyserTempUpdateCounter >= (5*20) && systemState == systemStates::heating)  // Update geyser element state every 5 seconds 
   {
     geyserTempUpdateCounter = 0;
     float deadBandBottom = geyserSetTemp - geyserWaterDeadband;
@@ -182,10 +182,14 @@ void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)
     if(geyserWaterTemp < geyserSetTemp)
     {
       // Geyser element should switch on
-      if(!geyserLatchFlag && (geyserWaterTemp != geyserThermistorDisconnected)) { actuatePower(On, highPowerLoad::geyser); }
+      if(!geyserLatchFlag && (geyserWaterTemp != geyserThermistorDisconnected)) { actuatePower(On, highPowerLoad::geyser); geyserLatchFlag = On; }
     }
     // Check if the water temperature is above the set temperature
-    else if(geyserWaterTemp >= geyserSetTemp && geyserLatchFlag)  { actuatePower(On, highPowerLoad::geyser); }
+    else if(geyserWaterTemp >= geyserSetTemp && geyserLatchFlag)  
+    { 
+      actuatePower(Off, highPowerLoad::geyser); 
+      geyserLatchFlag = Off;
+    }
     // Check if the water temperature is in the defined deadband zone
     else if((geyserWaterTemp >= deadBandBottom) && (geyserWaterTemp <= deadBandTop))
     {
@@ -229,16 +233,21 @@ void controlServoValve()
 
 void controlChestFreezerPower()
 {
-  
+  if(systemState == systemStates::cooling && freezerTempUpdateCounter >= (5*30))
+  {
+    freezerTempUpdateCounter = 0;
+    if(freezerChamberTemp > 2.00) // Turn freezer on to decrease temperature in freezer chamber
+    {
+      actuatePower(On, highPowerLoad::freezer);
+      freezerLatchFlag = true;
+    }
+    else  // Turn freezer off before it reaches dangerously low temperature
+    {
+      actuatePower(Off, highPowerLoad::freezer);
+      freezerLatchFlag = false;
+    }
+  }
 }
-
-// int setSystemState() 
-// {
-//   int systemState_ = idle;
-//   double deltaTemp = inletSetTemp - geyserWaterTemp;
-//   return systemState_;
-// }
-
 
 /** Function description
  * \brief This function is used to regulate the inlet temperature of the 150L geyser water if this is required.
@@ -428,6 +437,7 @@ void TC3_Handler() {
     // Write callback here!!!
     timerSampleFlag = true;
     geyserTempUpdateCounter++;
+    freezerTempUpdateCounter++;
   }
 }
 
