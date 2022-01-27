@@ -11,7 +11,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <wifiDetails.h>
-// Define all necessary pins used by Arduino
+// Define all necessary pins and ports used by Arduino
+#define mainControllerChannel       Serial1
 #define geyserPowerSetPin           7
 #define geyserPowerResetPin         8
 #define freezerSetPin               12
@@ -52,19 +53,26 @@ DallasTemperature systemTempBus(&SystemTemp);
 // Define all general variables
 bool geyserLatchFlag = false;
 bool freezerLatchFlag = false;
-bool regulationFlag = true;
+bool regulationFlag = false;
 bool timerSampleFlag = false;
 bool firstTempRequest = true;
 int systemState = idle;
 volatile bool encoderClkFlag = false;
 volatile bool encoderSwFlag = false;
 volatile bool encoderDtFlag = false; 
-int tempResolution = 12;    // This is necessary to have a 5 Hz update frequency 
+volatile int geyserTempUpdateCounter = 0;
+int tempResolution = 10;    // This is necessary to have a 5 Hz update frequency 
 const int servoFREQUENCY = 50;
+const int disconnectDS18B20 = DEVICE_DISCONNECTED_C;
 const unsigned long serialSpeed = 115200;
 double inletTempMeas = 0.00;
 double inletTempCal = 0.00;
 double inletSetTemp = 20;
+double geyserSetTemp = 30;
+double geyserWaterTemp;
+const double geyserThermistorDisconnected = -1;
+double geyserWaterDeadband = 1.5;
+bool inDeadBand = false;
 double tempAccuracyMargin = 0.5;
 const DeviceAddress inletWaterSensorAddress = { 0x28, 0xE9, 0x12, 0x75, 0xD0, 0x01, 0x3C, 0xB7 };
 // Define the absolute valve boundaries of the servo motors
@@ -113,7 +121,8 @@ paramsThermistorNTC geyserWiseThermistorMain, geyserWiseThermistorPre;
 // Declare all function prototypess
 void actuatePower(bool elementState, bool type = geyser);
 void configurePins();
-void controlMainGeyserInletTemp(double inletSetTemp = 25);
+void controlInletEnvironment(double MainInletSetTemp = 25);
+void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp);
 void oneWireSetup();
 void calibrateServos();
 void actuateServo(int valveNum = mainSupplyValve, double servoAngle = 0);
@@ -124,6 +133,7 @@ void setTimerFrequency(int frequencyHz);
 void TC3_Handler();
 void displaySetup();
 uint8_t findOneWireDevices(int pin);
+void getAllTemperatures();
 double getGeyserThermistorTemp();
 void setThermistorProperties(paramsThermistorNTC *thermistorStruct);
 double mapDouble(double x, double in_min, double in_max, double out_min, double out_max);
@@ -140,4 +150,7 @@ void encoderSwHandler();
 void encoderDtHandler();
 void encoderClkHandler();
 void setTemperatureMenu();
+void controlChestFreezerPower();
+void controlServoValve();
+
 #endif

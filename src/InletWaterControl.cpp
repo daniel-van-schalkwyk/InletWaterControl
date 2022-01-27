@@ -1,52 +1,66 @@
 #include <declarations.h>
 
 void setup() {
-  // put your setup code here, to run once:
+  // Setup code
   Serial.begin(serialSpeed);
-  // configurePins();
-  // oneWireSetup();
-  // servoMotorSetup();
-  // startTimer(servoUpdateFrequency);
+  mainControllerChannel.begin(serialSpeed);
+  configurePins();
+  oneWireSetup();
+  servoMotorSetup();
+  startTimer(servoUpdateFrequency);
   displaySetup();
-  // // connectToWifi();
-  // previousStateCLK = digitalRead(encoderClkPin);
-  // Serial.print("Setup Complete");
-
+  // connectToWifi();
+  previousStateCLK = digitalRead(encoderClkPin);
+  Serial.print("Setup Complete");
 }
 
 void loop() {
-  findOneWireDevices(4);
-  delay(2000);
-  // put your main code here, to run repeatedly:
-  // if(Serial.available() > 0)
-  // {
-  //   readSerialMessage(Serial.readStringUntil(0x10));
-  // }
-  // else
-  // {
-  //   // calibrateServos();
-  //   // servoPWM.setPWM(0, 0, MIN_GV_servo);
-  //   // delay(100);
-  //   // Serial.println(getServoAngle());
-  //   // controlMainGeyserInletTemp(inletSetTemp);
-
-  //   if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
-  //   {
-  //     Serial.println("Switch triggered...");
-  //     systemState = systemStates::tempSelect;
-  //     setTemperatureMenu();
-  //   }
-  // }
+  // Loop code
+  if(mainControllerChannel.available() > 0) // If there is a message from the main controller
+  {
+    delay(5); // Provide enough time for UART buffer to fill
+    readSerialMessage(mainControllerChannel.readStringUntil('\n'));
+  }
+  else if(Serial.available() > 0) // If there is a message from the computer via USB
+  {
+    // Do something here
+    Serial.flush();
+  }
+  else
+  {
+    controlInletEnvironment(inletSetTemp);
+    Serial.println("servoAngle:" + String(getServoAngle()));
+    mainControllerChannel.println("servoAngle:" + String(getServoAngle()));
+     
+    // Check if encoder is in use
+    if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
+    {
+      Serial.println("Switch triggered...");
+      systemState = systemStates::tempSelect;
+      setTemperatureMenu();
+    }
+  }
 }
 
 void readSerialMessage(String serialMessage)
 {
   regulationFlag = (bool)(getSubString(serialMessage, ':', 0).toInt());
   inletSetTemp = getSubString(serialMessage, ':', 1).toDouble();
-  Serial.write("Regulation: ");
-  Serial.write(regulationFlag);
-  Serial.write(" and inlet set temp: ");
-  Serial.write(inletSetTemp);
+  // Send confirmation response to main controller
+  mainControllerChannel.println("Confirming received inlet controller parameters:");
+  mainControllerChannel.println("Regulation: " + String(regulationFlag));
+  mainControllerChannel.println("Inlet set temp: " + String(inletSetTemp));
+  mainControllerChannel.println("<---------------------->");
+}
+
+/*! Function description
+  @brief  This function is used to call the necessary parameters 
+          from the main controller in order to regulate the inlet temperature
+*/
+void requestInletControllerParams()
+{
+  mainControllerChannel.println("Request");
+
 }
 
 /** Function description
@@ -123,93 +137,100 @@ void actuatePower(bool loadState, bool loadType)
   }
 }
 
-/*! Function description
-  @brief  This function is used to configure all pins used in the overall system.
-*/
-void configurePins()
+void getAllTemperatures()
 {
-  // Configure all OUTPUT pins (Default is INPUT)
-  pinMode(geyserPowerSetPin, OUTPUT);
-  pinMode(geyserPowerResetPin, OUTPUT);
-  pinMode(freezerSetPin, OUTPUT);
-  pinMode(freezerResetPin, OUTPUT);
-  pinMode(geyserValveFeedbackPin, INPUT);
-  pinMode(mainWaterValveFeedbackPin, INPUT);
-  pinMode(preInletValveFeedbackPin, INPUT);
-  pinMode(servoPosFeedbackPin, INPUT);
-  analogReadResolution(12); // Set analgue pin resolution to 12 bits
-  configureInterrupts();
-}
-
-/*! Function description
-  @brief  This function is used to configure the appropriate interrupt pins of the overall system.
-*/
-void configureInterrupts() 
-{
-  pinMode(encoderClkPin, INPUT);
-  pinMode(encoderDtPin, INPUT);
-  pinMode(encoderSwPin, INPUT);
-  attachInterrupt(digitalPinToInterrupt(encoderSwPin), encoderSwHandler, FALLING);
-  attachInterrupt(digitalPinToInterrupt(encoderDtPin), encoderDtHandler, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(encoderClkPin), encoderClkHandler, CHANGE);
-}
-
-/*! Function description
-  @brief  This function is used to configure all pins used in the overall system.
-*/
-void servoMotorSetup()
-{
-  servoPWM.begin();
-  servoPWM.setPWMFreq(servoFREQUENCY);
-}
-
-/** Function description
- * \brief This function is used to regulate the inlet temperature of the 150L geyser water if this is required.
- */
-void controlMainGeyserInletTemp(double inletSetTemp)
-{
-  double geyserWaterTemp = 20.00;
-  if(regulationFlag && timerSampleFlag)
+  if(firstTempRequest)
   {
-    timerSampleFlag = false;
-    servoPWM.setPWM(servoChannel, 0, ServoPwmTick);
+    systemTempBus.requestTemperatures();
+    firstTempRequest = false;
+  }
+  else
+  {
+    inletTempCal = systemTempBus.getTempC(inletWaterSensorAddress);
+    systemTempBus.requestTemperatures();
+  }
+  geyserWaterTemp = getGeyserThermistorTemp();
+
+}
+
+/*! Function description
+  @brief  This function is responsible for controlling the power delivered 
+          to the element of the geyser. The power will switch between ON and OFF
+          based on the temperature reading of the internal geyser water.
+*/
+void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)  
+{
+  if(geyserTempUpdateCounter >= (5*20))  // Update geyser element state every 5 seconds 
+  {
+    geyserTempUpdateCounter = 0;
+    float deadBandBottom = geyserSetTemp - geyserWaterDeadband;
+    float deadBandTop = geyserSetTemp + geyserWaterDeadband;
+     if(geyserWaterTemp < 0) { geyserWaterTemp = geyserThermistorDisconnected; }  // geyser thermostat not connected
+    // Check if the water temperature is below the set temperature
+    if(geyserWaterTemp < geyserSetTemp)
+    {
+      // Geyser element should switch on
+      if(!geyserLatchFlag && (geyserWaterTemp != geyserThermistorDisconnected)) { actuatePower(On, highPowerLoad::geyser); }
+    }
+    // Check if the water temperature is above the set temperature
+    else if(geyserWaterTemp >= geyserSetTemp && geyserLatchFlag)  { actuatePower(On, highPowerLoad::geyser); }
+    // Check if the water temperature is in the defined deadband zone
+    else if((geyserWaterTemp >= deadBandBottom) && (geyserWaterTemp <= deadBandTop))
+    {
+      inDeadBand = true;
+    }
+    else  // Water temperature is not in deadband region
+    {
+      inDeadBand = false;
+    }
+  }
+}
+
+void controlServoValve()
+{
+  if(inletTempMeas != disconnectDS18B20 || inletTempMeas != 0)  // Only regulate if values make sense
+  {
     double currentServoAngle = getServoAngle();
     Serial.println(currentServoAngle);
-    if(firstTempRequest)
+    double inletTempError = inletSetTemp - inletTempCal;
+    if((inletTempError > 0.00) && (abs(inletTempError) > tempAccuracyMargin))
     {
-      systemTempBus.requestTemperatures();
-      firstTempRequest = false;
+      // The measured inlet water temperature is below the setpoint margin
+      // Water needs to increase in temperature
+      actuateServo(geyserValve, calcPIDoutput(inletTempError, angle_));
+    }
+    else if((inletTempError < 0.00) && (abs(inletTempError) > tempAccuracyMargin))
+    {
+      // The measured inlet water temperature is above the setpoint margin
+      // Water needs to decrease in temperature
+      actuateServo(geyserValve, calcPIDoutput(inletTempError, angle_));
     }
     else
     {
-      inletTempCal = systemTempBus.getTempC(inletWaterSensorAddress);
-      geyserWaterTemp = getGeyserThermistorTemp();
-      systemTempBus.requestTemperatures();
-      double inletTempError = inletSetTemp - inletTempCal;
-      if((inletTempError > 0.00) && (abs(inletTempError) > tempAccuracyMargin))
-      {
-        // The measured inlet water temperature is below the setpoint margin
-        // Water needs to increase in temperature
-        actuateServo(geyserValve, calcPIDoutput(inletTempError, angle_));
-      }
-      else if((inletTempError < 0.00) && (abs(inletTempError) > tempAccuracyMargin))
-      {
-        // The measured inlet water temperature is above the setpoint margin
-        // Water needs to decrease in temperature
-        actuateServo(geyserValve, calcPIDoutput(inletTempError, angle_));
-      }
-      else
-      {
-        // The measured inlet temperature is within the temperature margin and is ready
-      }
+      // The measured inlet temperature is within the temperature margin and is ready
     }
-    // print to LED screen
-    // display.clearDisplay();
-    // display.println("Temperature: " + String(inletTempCal));
-    // display.setCursor(0, 10);
-    // display.println("Geyser Temp: " + String(geyserWaterTemp));
-    // display.display();
-    u8g2.clearDisplay();
+  }
+}
+
+void controlChestFreezerPower()
+{
+
+}
+/** Function description
+ * \brief This function is used to regulate the inlet temperature of the 150L geyser water if this is required.
+ */
+void controlInletEnvironment(double MainInletSetTemp)
+{
+  if(regulationFlag && timerSampleFlag)
+  {
+    timerSampleFlag = false;
+    getAllTemperatures();
+    controlGeyserElement(geyserWaterTemp, geyserSetTemp);
+    controlChestFreezerPower();
+    controlServoValve();
+  }
+  // Update Display
+  u8g2.clearDisplay();
     u8g2.setFont(u8g2_font_6x10_tr);
     u8g2.firstPage();
     do 
@@ -220,7 +241,6 @@ void controlMainGeyserInletTemp(double inletSetTemp)
       u8g2.println("Geyser Temp: " + String(geyserWaterTemp));
     } 
     while ( u8g2.nextPage() );
-  }
 }
 
 double calcPIDoutput(double inletTempError, bool typeOut)
@@ -286,6 +306,7 @@ void calibrateServos()
 
 double getServoAngle()
 {
+  analogReadResolution(12);
   double adcInServo = analogRead(servoPosFeedbackPin);
   adcInServo *= 3.30/max12BitNum;
   return mapDouble(adcInServo, feedback0, feedback90, 0, 90);
@@ -362,17 +383,8 @@ void TC3_Handler() {
     TC->INTFLAG.bit.MC0 = 1;
     // Write callback here!!!
     timerSampleFlag = true;
+    geyserTempUpdateCounter++;
   }
-}
-
-/** Description
- * \brief This function is used to calibrate a sensor bus to an accurate temperature value
- *        A simple linear calibration technique is used to calibrate the sensors
- *        T_calibrated = m_slope * T_measured + intercept
- */
-void calibrateSensorBus()
-{
-  // read 
 }
 
 /*! Function description
@@ -394,22 +406,6 @@ void displaySetup()
     } 
     while ( u8g2.nextPage() );
   }
-  
-  // if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) 
-  // { 
-  //  // Clear the buffer
-  //   display.clearDisplay();
-  //   delay(1);
-  //   display.setTextSize(1);
-  //   display.setTextColor(WHITE);
-  //   display.setCursor(0, 0);
-  //   // Display static text
-  //   display.println("OLED screen ready!");
-  //   display.setCursor(0, 10);
-  //   display.println("Current State: IDLE");
-  //   display.display();
-  //   delay(1);
-  // }
 }
 
 uint8_t findOneWireDevices(int pin)
@@ -571,25 +567,8 @@ uint8_t checkEncoderDirection()
     }
   } 
   // Update previousStateCLK with the current state
-  previousStateCLK = currentStateCLK; 
+  previousStateCLK = currentStateCLK;
   return direction;
-}
-
-void encoderClkHandler()
-{
-  encoderClkFlag = true;
-  encoderClkTick = millis();
-}
-
-void encoderDtHandler()
-{
-  encoderDtFlag = true;
-}
-
-void encoderSwHandler()
-{
-  encoderSwFlag = true;
-  encoderSwTick = millis();
 }
 
 void setTemperatureMenu()
@@ -616,4 +595,61 @@ void setTemperatureMenu()
     display.display();
   }
   encoderSwFlag = false;
+}
+
+/*! Function description
+  @brief  This function is used to configure all pins used in the overall system.
+*/
+void configurePins()
+{
+  // Configure all OUTPUT pins (Default is INPUT)
+  pinMode(geyserPowerSetPin, OUTPUT);
+  pinMode(geyserPowerResetPin, OUTPUT);
+  pinMode(freezerSetPin, OUTPUT);
+  pinMode(freezerResetPin, OUTPUT);
+  pinMode(geyserValveFeedbackPin, INPUT);
+  pinMode(mainWaterValveFeedbackPin, INPUT);
+  pinMode(preInletValveFeedbackPin, INPUT);
+  pinMode(servoPosFeedbackPin, INPUT);
+  analogReadResolution(12); // Set analgue pin resolution to 12 bits
+  configureInterrupts();
+}
+
+/*! Function description
+  @brief  This function is used to configure the appropriate interrupt pins of the overall system.
+*/
+void configureInterrupts() 
+{
+  pinMode(encoderClkPin, INPUT);
+  pinMode(encoderDtPin, INPUT);
+  pinMode(encoderSwPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(encoderSwPin), encoderSwHandler, FALLING);
+  attachInterrupt(digitalPinToInterrupt(encoderDtPin), encoderDtHandler, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(encoderClkPin), encoderClkHandler, CHANGE);
+}
+
+/*! Function description
+  @brief  This function is used to configure all pins used in the overall system.
+*/
+void servoMotorSetup()
+{
+  servoPWM.begin();
+  servoPWM.setPWMFreq(servoFREQUENCY);
+}
+
+void encoderClkHandler()
+{
+  encoderClkFlag = true;
+  encoderClkTick = millis();
+}
+
+void encoderDtHandler()
+{
+  encoderDtFlag = true;
+}
+
+void encoderSwHandler()
+{
+  encoderSwFlag = true;
+  encoderSwTick = millis();
 }
