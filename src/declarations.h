@@ -37,7 +37,7 @@ enum valveNumber{geyserValve, mainSupplyValve, PreInletValve, mixingValve};
 enum PID_out_type{angle_, PWM};
 enum highPowerLoad{geyser, freezer};
 enum encoderDirection : uint8_t {CCW, CW, still};
-enum systemStates{idle, tempPrep, tempSelect};
+enum systemStates : int {idle, cooling, heating, discharging, tempSelect};
 // Define parameters used by OLED screen
 #define SCREEN_WIDTH            128     // OLED display width, in pixels
 #define SCREEN_HEIGHT           64      // OLED display height, in pixels
@@ -50,17 +50,25 @@ OneWire SystemTemp(tempBusPin);
 OneWire CalibratorTemp(tempCalibratorPin);
 DallasTemperature calTempBus(&CalibratorTemp);
 DallasTemperature systemTempBus(&SystemTemp);
+const DeviceAddress mainInletWaterSensorAddress = {0x28, 0xA7, 0xB3, 0x79, 0xA2, 0x00, 0x03, 0xA6};
+const DeviceAddress localOutletSensorAddress = {0x28, 0xE9, 0x12, 0x75, 0xD0, 0x01, 0x3C, 0xB7};
+const DeviceAddress freezerTempSensorAddress = {};
 // Define all general variables
+int systemState = idle;
 bool geyserLatchFlag = false;
 bool freezerLatchFlag = false;
 bool regulationFlag = false;
 bool timerSampleFlag = false;
 bool firstTempRequest = true;
-int systemState = idle;
 volatile bool encoderClkFlag = false;
 volatile bool encoderSwFlag = false;
 volatile bool encoderDtFlag = false; 
 volatile int geyserTempUpdateCounter = 0;
+const double geyserThermistorDisconnected = -1;
+const double geyserWaterDeadband = 1.5;
+const double inletTempSatisfactionMargin = 0.5;
+bool inDeadBand = false;
+double tempAccuracyMargin = 0.5;
 int tempResolution = 10;    // This is necessary to have a 5 Hz update frequency 
 const int servoFREQUENCY = 50;
 const int disconnectDS18B20 = DEVICE_DISCONNECTED_C;
@@ -69,12 +77,11 @@ double inletTempMeas = 0.00;
 double inletTempCal = 0.00;
 double inletSetTemp = 20;
 double geyserSetTemp = 30;
-double geyserWaterTemp;
-const double geyserThermistorDisconnected = -1;
-double geyserWaterDeadband = 1.5;
-bool inDeadBand = false;
-double tempAccuracyMargin = 0.5;
-const DeviceAddress inletWaterSensorAddress = { 0x28, 0xE9, 0x12, 0x75, 0xD0, 0x01, 0x3C, 0xB7 };
+// Define local temperature measurement variables
+double localOutletTemp = 0.00;
+double freezerChamberTemp = 0.00;
+double geyserWaterTemp = 0.00;
+double sourceWaterTemp = 0.00;
 // Define the absolute valve boundaries of the servo motors
 const int MIN_GV_servo = 160;   // 0 deg
 const int MAX_GV_servo = 300;   // 90 deg
@@ -152,5 +159,6 @@ void encoderClkHandler();
 void setTemperatureMenu();
 void controlChestFreezerPower();
 void controlServoValve();
-
+void updateDisplay();
+int setSystemState();
 #endif

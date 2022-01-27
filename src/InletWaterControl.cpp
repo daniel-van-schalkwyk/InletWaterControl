@@ -42,15 +42,24 @@ void loop() {
   }
 }
 
+/** Function description
+ * \brief This function is used to ...
+ */
 void readSerialMessage(String serialMessage)
 {
   regulationFlag = (bool)(getSubString(serialMessage, ':', 0).toInt());
   inletSetTemp = getSubString(serialMessage, ':', 1).toDouble();
+  systemState = (int)getSubString(serialMessage, ':', 2).toInt();
   // Send confirmation response to main controller
   mainControllerChannel.println("Confirming received inlet controller parameters:");
   mainControllerChannel.println("Regulation: " + String(regulationFlag));
   mainControllerChannel.println("Inlet set temp: " + String(inletSetTemp));
-  mainControllerChannel.println("<---------------------->");
+  mainControllerChannel.print("Energy input: ");
+  if(systemState == (int)cooling) { mainControllerChannel.println("Cooling"); }
+  else if (systemState == (int)heating) { mainControllerChannel.println("Heating"); }
+  else if (systemState == (int)idle)  {mainControllerChannel.println("Idle");} 
+  else { mainControllerChannel.println("Eish, something is wrong."); }
+  delay(2);
 }
 
 /*! Function description
@@ -60,7 +69,6 @@ void readSerialMessage(String serialMessage)
 void requestInletControllerParams()
 {
   mainControllerChannel.println("Request");
-
 }
 
 /** Function description
@@ -137,6 +145,9 @@ void actuatePower(bool loadState, bool loadType)
   }
 }
 
+/*! Function description
+  @brief  This function is responsible for capturing all temperature data of the inlet controller
+*/
 void getAllTemperatures()
 {
   if(firstTempRequest)
@@ -146,11 +157,12 @@ void getAllTemperatures()
   }
   else
   {
-    inletTempCal = systemTempBus.getTempC(inletWaterSensorAddress);
+    inletTempMeas = systemTempBus.getTempC(mainInletWaterSensorAddress);
+    localOutletTemp = systemTempBus.getTempC(localOutletSensorAddress);
+    freezerChamberTemp = systemTempBus.getTempC(freezerTempSensorAddress);
     systemTempBus.requestTemperatures();
   }
   geyserWaterTemp = getGeyserThermistorTemp();
-
 }
 
 /*! Function description
@@ -165,7 +177,7 @@ void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)
     geyserTempUpdateCounter = 0;
     float deadBandBottom = geyserSetTemp - geyserWaterDeadband;
     float deadBandTop = geyserSetTemp + geyserWaterDeadband;
-     if(geyserWaterTemp < 0) { geyserWaterTemp = geyserThermistorDisconnected; }  // geyser thermostat not connected
+    if(geyserWaterTemp < 0) { geyserWaterTemp = geyserThermistorDisconnected; }  // geyser thermostat not connected
     // Check if the water temperature is below the set temperature
     if(geyserWaterTemp < geyserSetTemp)
     {
@@ -186,6 +198,9 @@ void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)
   }
 }
 
+/** Function description
+ * \brief This function is used to ...
+ */
 void controlServoValve()
 {
   if(inletTempMeas != disconnectDS18B20 || inletTempMeas != 0)  // Only regulate if values make sense
@@ -214,8 +229,17 @@ void controlServoValve()
 
 void controlChestFreezerPower()
 {
-
+  
 }
+
+// int setSystemState() 
+// {
+//   int systemState_ = idle;
+//   double deltaTemp = inletSetTemp - geyserWaterTemp;
+//   return systemState_;
+// }
+
+
 /** Function description
  * \brief This function is used to regulate the inlet temperature of the 150L geyser water if this is required.
  */
@@ -224,25 +248,36 @@ void controlInletEnvironment(double MainInletSetTemp)
   if(regulationFlag && timerSampleFlag)
   {
     timerSampleFlag = false;
-    getAllTemperatures();
-    controlGeyserElement(geyserWaterTemp, geyserSetTemp);
-    controlChestFreezerPower();
-    controlServoValve();
+    getAllTemperatures(); // Capture state temperatures
+    // systemState = setSystemState();
+    controlGeyserElement(geyserWaterTemp, geyserSetTemp); // Control geyser temp
+    controlChestFreezerPower(); // Ensure that freezer temperature does not go lower than 1*C
+    controlServoValve();  // Control flow of water through servo valve
   }
-  // Update Display
+  updateDisplay(); // Update display
+}
+
+/** Function description
+ * \brief This function is used to ...
+ */
+void updateDisplay()
+{
   u8g2.clearDisplay();
     u8g2.setFont(u8g2_font_6x10_tr);
     u8g2.firstPage();
     do 
     {
       u8g2.setCursor(0, 10);
-      u8g2.print("Temperature = " + String(inletTempCal));
+      u8g2.print("Temperature = " + String(inletTempMeas));
       u8g2.setCursor(0, 20);
       u8g2.println("Geyser Temp: " + String(geyserWaterTemp));
     } 
     while ( u8g2.nextPage() );
 }
 
+/** Function description
+ * \brief This function is used to ...
+ */
 double calcPIDoutput(double inletTempError, bool typeOut)
 {
   servoPIDout.Kp = 8;
@@ -285,6 +320,9 @@ void oneWireSetup()
   calTempBus.setWaitForConversion(false);
 }
 
+/** Function description
+ * \brief This function is used to ...
+ */
 void calibrateServos()
 {
   if(ServoPwmTick >= MIN_GV_servo && ServoPwmTick < MAX_GV_servo && dirFlag)
@@ -304,6 +342,9 @@ void calibrateServos()
   servoPWM.setPWM(0, 0, ServoPwmTick);
 }
 
+/** Function description
+ * \brief This function is used to ...
+ */
 double getServoAngle()
 {
   analogReadResolution(12);
@@ -312,6 +353,9 @@ double getServoAngle()
   return mapDouble(adcInServo, feedback0, feedback90, 0, 90);
 }
 
+/** Function description
+ * \brief This function is used to ...
+ */
 void actuateServo(int valveNum, double servoAngle)
 {
   servoPWM.setPWM(valveNum, 0, getServoPulsePeriod(valveNum, servoAngle));
