@@ -18,8 +18,8 @@ void setup() {
 
 void loop() {
   // Loop code
-  double angleCurr = getServoAngle();
-  Serial.println(String(angleCurr) + " : " + String(ServoPwmTick));
+  // double angleCurr = getServoAngle();
+  // Serial.println(String(angleCurr) + " : " + String(ServoPwmTick));
   // calibrateServos();
   if(mainControllerChannel.available() > 0) // If there is a message from the main controller
   {
@@ -29,6 +29,8 @@ void loop() {
   else if(Serial.available() > 0) // If there is a message from the computer via USB
   {
     // Do something here
+    readSerialMessage(Serial.readStringUntil('\n'));
+    Serial.println("Message received from Computer");
     Serial.flush();
   }
   else
@@ -301,7 +303,9 @@ void updateDisplay()
       u8g2.setCursor(0, 10);
       u8g2.print("Temperature = " + String(inletTempMeas));
       u8g2.setCursor(0, 20);
-      u8g2.println("Geyser Temp: " + String(geyserWaterTemp));
+      u8g2.println("GeyserTemp: " + String(geyserWaterTemp));
+      u8g2.setCursor(0, 30);
+      u8g2.println("ServoAngle: " + String(getServoAngle()));
     } 
     while ( u8g2.nextPage() );
   }
