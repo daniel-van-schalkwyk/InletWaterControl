@@ -16,13 +16,13 @@
 #define geyserPowerSetPin           7
 #define geyserPowerResetPin         8
 #define freezerSetPin               12
-#define freezerResetPin             13
-#define tempBusPin                  2
+#define freezerResetPin             5
+#define tempBusPin                  4
 #define tempCalibratorPin           6
-#define geyserValveFeedbackPin      5
+#define geyserValveFeedbackPin      13
 #define mainWaterValveFeedbackPin   4
 #define preInletValveFeedbackPin    3
-#define geyserWaterTempPin          A1
+#define geyserWaterTempPin          A7
 #define servoPosFeedbackPin         A6
 #define encoderDtPin                10
 #define encoderClkPin               11
@@ -55,6 +55,7 @@ const DeviceAddress localOutletSensorAddress = {0x28, 0xE9, 0x12, 0x75, 0xD0, 0x
 const DeviceAddress freezerTempSensorAddress = {};
 // Define all general variables
 int systemState = idle;
+bool menuLatch = false;
 bool geyserLatchFlag = false;
 bool freezerLatchFlag = false;
 bool regulationFlag = false;
@@ -65,6 +66,8 @@ volatile bool encoderSwFlag = false;
 volatile bool encoderDtFlag = false; 
 volatile int geyserTempUpdateCounter = 0;
 volatile int freezerTempUpdateCounter = 0;
+volatile int paramsRequestTick = 0;
+volatile int updateDisplayTick = 0;
 const double geyserThermistorDisconnected = -1;
 const double geyserWaterDeadband = 1.5;
 const double inletTempSatisfactionMargin = 0.5;
@@ -84,8 +87,8 @@ double freezerChamberTemp = 0.00;
 double geyserWaterTemp = 0.00;
 double sourceWaterTemp = 0.00;
 // Define the absolute valve boundaries of the servo motors
-const int MIN_GV_servo = 160;   // 0 deg
-const int MAX_GV_servo = 300;   // 90 deg
+const int MIN_GV_servo = 160;   // 0 deg - value for full geyser outlet flow
+const int MAX_GV_servo = 300;   // 90 deg - value for full source water flow
 const double feedback90 = 1.52; // voltage feedback from feedbak pin for 90 degrees
 const double feedback0  = 0.58; // voltage feedback from feedbak pin for 0 degrees
 int16_t ServoPwmTick = MIN_GV_servo;
@@ -161,4 +164,5 @@ void setTemperatureMenu();
 void controlChestFreezerPower();
 void controlServoValve();
 void updateDisplay();
+void requestInletControllerParams();
 #endif

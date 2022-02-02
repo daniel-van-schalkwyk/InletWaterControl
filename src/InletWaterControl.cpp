@@ -12,14 +12,19 @@ void setup() {
   // connectToWifi();
   previousStateCLK = digitalRead(encoderClkPin);
   Serial.print("Setup Complete");
+  requestInletControllerParams();
+  actuateServo(0, 90.00); // Open valve to be fully supplied by source water side
 }
 
 void loop() {
   // Loop code
+  double angleCurr = getServoAngle();
+  Serial.println(String(angleCurr) + " : " + String(ServoPwmTick));
+  // calibrateServos();
   if(mainControllerChannel.available() > 0) // If there is a message from the main controller
   {
-    delay(5); // Provide enough time for UART buffer to fill
     readSerialMessage(mainControllerChannel.readStringUntil('\n'));
+    Serial.println("Message received from Main");
   }
   else if(Serial.available() > 0) // If there is a message from the computer via USB
   {
@@ -29,12 +34,12 @@ void loop() {
   else
   {
     controlInletEnvironment(inletSetTemp);
-    Serial.println("servoAngle:" + String(getServoAngle()));
-    mainControllerChannel.println("servoAngle:" + String(getServoAngle()));
-     
+    // Serial.println("servoAngle:" + String(getServoAngle()));     
     // Check if encoder is in use
     if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
     {
+      menuLatch = !menuLatch;
+      encoderSwFlag = false;
       Serial.println("Switch triggered...");
       systemState = systemStates::tempSelect;
       setTemperatureMenu();
@@ -47,19 +52,27 @@ void loop() {
  */
 void readSerialMessage(String serialMessage)
 {
-  regulationFlag = (bool)(getSubString(serialMessage, ':', 0).toInt());
-  inletSetTemp = getSubString(serialMessage, ':', 1).toDouble();
-  systemState = (int)getSubString(serialMessage, ':', 2).toInt();
+  if(getSubString(serialMessage, ':', 0).equalsIgnoreCase("SVP"))
+  {
+    regulationFlag = false;
+    actuateServo(servoChannel, getSubString(serialMessage, ':', 1).toDouble());
+  }
+  else
+  {
+    regulationFlag = (bool)(getSubString(serialMessage, ':', 0).toInt());
+    inletSetTemp = getSubString(serialMessage, ':', 1).toDouble();
+    systemState = (int)getSubString(serialMessage, ':', 2).toInt();
+  }
   // Send confirmation response to main controller
-  mainControllerChannel.println("Confirming received inlet controller parameters:");
-  mainControllerChannel.println("Regulation: " + String(regulationFlag));
-  mainControllerChannel.println("Inlet set temp: " + String(inletSetTemp));
-  mainControllerChannel.print("Energy input: ");
-  if(systemState == (int)cooling) { mainControllerChannel.println("Cooling"); }
-  else if (systemState == (int)heating) { mainControllerChannel.println("Heating"); }
-  else if (systemState == (int)idle)  {mainControllerChannel.println("Idle");} 
-  else { mainControllerChannel.println("Eish, something is wrong."); }
-  delay(2);
+  // mainControllerChannel.println("Confirming received inlet controller parameters:");
+  // mainControllerChannel.println("Regulation: " + String(regulationFlag));
+  // mainControllerChannel.println("Inlet set temp: " + String(inletSetTemp));
+  // mainControllerChannel.print("Energy input: ");
+  // if(systemState == (int)cooling) { mainControllerChannel.println("Cooling"); }
+  // else if (systemState == (int)heating) { mainControllerChannel.println("Heating"); }
+  // else if (systemState == (int)idle)  {mainControllerChannel.println("Idle");} 
+  // else { mainControllerChannel.println("Eish, something is wrong."); }
+  // mainControllerChannel.flush();
 }
 
 /*! Function description
@@ -69,6 +82,7 @@ void readSerialMessage(String serialMessage)
 void requestInletControllerParams()
 {
   mainControllerChannel.println("Request");
+  mainControllerChannel.flush();
 }
 
 /** Function description
@@ -254,6 +268,11 @@ void controlChestFreezerPower()
  */
 void controlInletEnvironment(double MainInletSetTemp)
 {
+  if(paramsRequestTick >= (5*30)) // Request parameter update from main controller every 30 sec
+  {
+    paramsRequestTick = 0;
+    requestInletControllerParams();
+  }
   if(regulationFlag && timerSampleFlag)
   {
     timerSampleFlag = false;
@@ -271,7 +290,10 @@ void controlInletEnvironment(double MainInletSetTemp)
  */
 void updateDisplay()
 {
-  u8g2.clearDisplay();
+  if(updateDisplayTick >= 3)
+  {
+    updateDisplayTick = 0;
+    u8g2.clearDisplay();
     u8g2.setFont(u8g2_font_6x10_tr);
     u8g2.firstPage();
     do 
@@ -282,6 +304,7 @@ void updateDisplay()
       u8g2.println("Geyser Temp: " + String(geyserWaterTemp));
     } 
     while ( u8g2.nextPage() );
+  }
 }
 
 /** Function description
@@ -289,9 +312,9 @@ void updateDisplay()
  */
 double calcPIDoutput(double inletTempError, bool typeOut)
 {
-  servoPIDout.Kp = 8;
+  servoPIDout.Kp = 5;
   servoPIDout.Ki = 0.5;
-  servoPIDout.Kd = 0.2;
+  servoPIDout.Kd = 0;
   double errorDiff = servoPIDout.e_prev - inletTempError;
   double PID_out = 0.00;
   if(!typeOut)
@@ -337,7 +360,7 @@ void calibrateServos()
   if(ServoPwmTick >= MIN_GV_servo && ServoPwmTick < MAX_GV_servo && dirFlag)
   {
     dirFlag = true;
-    ServoPwmTick++;
+    ServoPwmTick += 2;
   }
   else
   {
@@ -345,10 +368,12 @@ void calibrateServos()
     if(ServoPwmTick <= MIN_GV_servo)
       dirFlag = true;
     else  
-      ServoPwmTick--;
+      ServoPwmTick -= 2;
   }
-  delay(100);
+  delay(200);
   servoPWM.setPWM(0, 0, ServoPwmTick);
+  // double angleCurr = getServoAngle();
+  // Serial.println(String(angleCurr) + " : " + String(ServoPwmTick));
 }
 
 /** Function description
@@ -430,7 +455,6 @@ void startTimer(int frequencyHz) {
 void TC3_Handler() {
   TcCount16* TC = (TcCount16*) TC3;
   // If this interrupt is due to the compare register matching the timer count
-  // we toggle the LED.
   if (TC->INTFLAG.bit.MC0 == 1) 
   {
     TC->INTFLAG.bit.MC0 = 1;
@@ -438,6 +462,8 @@ void TC3_Handler() {
     timerSampleFlag = true;
     geyserTempUpdateCounter++;
     freezerTempUpdateCounter++;
+    paramsRequestTick++;
+    updateDisplayTick++;
   }
 }
 
@@ -627,10 +653,11 @@ uint8_t checkEncoderDirection()
 
 void setTemperatureMenu()
 {
-  if(encoderSwFlag)
+  while(menuLatch)
   {
-    if (encoderClkFlag && (millis() - encoderClkTick >= 2))
+    if(encoderClkFlag && (millis() - encoderClkTick >= 1))
     {
+      encoderClkFlag = false;
       if(digitalRead(encoderDtPin) != digitalRead(encoderClkPin)) 
       { 
         encoderCounter++;
@@ -639,16 +666,25 @@ void setTemperatureMenu()
       {
         encoderCounter--;
       }
-      encoderClkFlag = false;
     }
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Adjust inlet set temp:");
-    display.setCursor(0, 10);
-    display.println("Inlet Temp: " + String(encoderCounter) + " degC");
-    display.display();
+    u8g2.clearDisplay();
+    u8g2.setFont(u8g2_font_5x8_tr);
+    u8g2.firstPage();
+    do 
+    {
+      u8g2.setCursor(0, 10);
+      u8g2.print("Adjust inlet set temp:");
+      u8g2.setCursor(0, 30);
+      u8g2.println("Inlet Temp: " + String(encoderCounter) + " degC");
+    } 
+    while ( u8g2.nextPage() );
+    
+    if(encoderSwFlag) 
+    {
+      menuLatch = !menuLatch; 
+      encoderSwFlag = false;
+    }
   }
-  encoderSwFlag = false;
 }
 
 /*! Function description
