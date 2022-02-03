@@ -36,7 +36,6 @@ void loop() {
   else
   {
     controlInletEnvironment(inletSetTemp);
-    // Serial.println("servoAngle:" + String(getServoAngle()));     
     // Check if encoder is in use
     if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
     {
@@ -46,6 +45,7 @@ void loop() {
       systemState = systemStates::tempSelect;
       setTemperatureMenu();
     }
+    updateDisplay(); // Update display
   }
 }
 
@@ -198,13 +198,12 @@ void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)
     if(geyserWaterTemp < geyserSetTemp)
     {
       // Geyser element should switch on
-      if(!geyserLatchFlag && (geyserWaterTemp != geyserThermistorDisconnected)) { actuatePower(On, highPowerLoad::geyser); geyserLatchFlag = On; }
+      if(!geyserLatchFlag && (geyserWaterTemp != geyserThermistorDisconnected)) { actuatePower(On, highPowerLoad::geyser); }
     }
     // Check if the water temperature is above the set temperature
     else if(geyserWaterTemp >= geyserSetTemp && geyserLatchFlag)  
     { 
       actuatePower(Off, highPowerLoad::geyser); 
-      geyserLatchFlag = Off;
     }
     // Check if the water temperature is in the defined deadband zone
     else if((geyserWaterTemp >= deadBandBottom) && (geyserWaterTemp <= deadBandTop))
@@ -252,15 +251,13 @@ void controlChestFreezerPower()
   if(systemState == systemStates::cooling && freezerTempUpdateCounter >= (5*30))
   {
     freezerTempUpdateCounter = 0;
-    if(freezerChamberTemp > 2.00) // Turn freezer on to decrease temperature in freezer chamber
+    if(freezerChamberTemp > 1.00) // Turn freezer on to decrease temperature in freezer chamber
     {
       actuatePower(On, highPowerLoad::freezer);
-      freezerLatchFlag = true;
     }
     else  // Turn freezer off before it reaches dangerously low temperature
     {
       actuatePower(Off, highPowerLoad::freezer);
-      freezerLatchFlag = false;
     }
   }
 }
@@ -284,7 +281,6 @@ void controlInletEnvironment(double MainInletSetTemp)
     controlChestFreezerPower(); // Ensure that freezer temperature does not go lower than 1*C
     controlServoValve();  // Control flow of water through servo valve
   }
-  updateDisplay(); // Update display
 }
 
 /** Function description
