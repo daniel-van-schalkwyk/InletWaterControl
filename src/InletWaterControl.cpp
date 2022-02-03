@@ -396,6 +396,8 @@ double getServoAngle()
  */
 void actuateServo(int valveNum, double servoAngle)
 {
+  if(servoAngle < 0) {servoAngle = 0.00;} // Ensure that servo lower limits are not reched
+  if(servoAngle > 90) {servoAngle = 90.00;} // Ensure that servo upper limits are not reached.
   servoPWM.setPWM(valveNum, 0, getServoPulsePeriod(valveNum, servoAngle));
 }
 
