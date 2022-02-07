@@ -65,6 +65,7 @@ void readSerialMessage(String serialMessage)
     regulationFlag = (bool)(getSubString(serialMessage, ':', 0).toInt());
     inletSetTemp = getSubString(serialMessage, ':', 1).toDouble();
     systemState = (int)getSubString(serialMessage, ':', 2).toInt();
+    mainControllerChannel.println("systemState is = " + String(systemState));
   }
   // Send confirmation response to main controller
   // mainControllerChannel.println("Confirming received inlet controller parameters:");
@@ -172,7 +173,7 @@ void getAllTemperatures()
     systemTempBus.requestTemperatures();
     firstTempRequest = false;
   }
-  else
+  else if (timerSampleCounter >= 1) // Temperature will be requested every 200ms
   {
     inletTempMeas = systemTempBus.getTempC(mainInletWaterSensorAddress);
     localOutletTemp = systemTempBus.getTempC(localOutletSensorAddress);
@@ -228,22 +229,15 @@ void controlGeyserElement(double geyserWaterTemp, double geyserSetTemp)
  */
 void controlServoValve()
 {
-  if(inletTempMeas != disconnectDS18B20 || inletTempMeas != 0)  // Only regulate if values make sense
+  if((inletTempMeas != disconnectDS18B20 || inletTempMeas != 0) && timerSampleCounter >= 10)  // Only regulate if values make sense
   {
     double currentServoAngle = getServoAngle();
     Serial.println(currentServoAngle);
     double inletTempError = inletSetTemp - inletTempCal;
-    if((inletTempError > 0.00) && (abs(inletTempError) > tempAccuracyMargin))
+    double PID_out = calcPIDoutput(inletTempError, angle_);
+    if(abs(inletTempError) > tempAccuracyMargin)
     {
-      // The measured inlet water temperature is below the setpoint margin
-      // Water needs to increase in temperature
-      actuateServo(geyserValve, calcPIDoutput(inletTempError, angle_));
-    }
-    else if((inletTempError < 0.00) && (abs(inletTempError) > tempAccuracyMargin))
-    {
-      // The measured inlet water temperature is above the setpoint margin
-      // Water needs to decrease in temperature
-      actuateServo(geyserValve, calcPIDoutput(inletTempError, angle_));
+      actuateServo(geyserValve, PID_out); // 
     }
     else
     {
@@ -279,9 +273,9 @@ void controlInletEnvironment(double MainInletSetTemp)
     paramsRequestTick = 0;
     requestInletControllerParams();
   }
-  if(regulationFlag && timerSampleFlag)
+  if(regulationFlag)
   {
-    timerSampleFlag = false;
+    timerSampleCounter = 0;
     getAllTemperatures(); // Capture state temperatures
     // systemState = setSystemState();
     controlGeyserElement(geyserWaterTemp, geyserSetTemp); // Control geyser temp
@@ -319,16 +313,16 @@ void updateDisplay()
  */
 double calcPIDoutput(double inletTempError, bool typeOut)
 {
-  servoPIDout.Kp = 5;
-  servoPIDout.Ki = 0.5;
+  servoPIDout.Kp = 2;
+  servoPIDout.Ki = 0.1;
   servoPIDout.Kd = 0;
   double errorDiff = servoPIDout.e_prev - inletTempError;
   double PID_out = 0.00;
-  if(!typeOut)
+  if(angle_)
   {
     PID_out = servoPIDout.Kp*inletTempError + servoPIDout.Ki*servoPIDout.e_sum + servoPIDout.Kd*errorDiff;
     if(PID_out >= 90) PID_out = 90;
-    else if(PID_out <= 90) PID_out = 0;
+    else if(PID_out <= 0) PID_out = 0;
   }
   else
   {
@@ -336,6 +330,8 @@ double calcPIDoutput(double inletTempError, bool typeOut)
     else if(PID_out <= MIN_GV_servo) PID_out = MIN_GV_servo;
   }
   servoPIDout.e_sum += inletTempError;
+  if(servoPIDout.e_sum >= 40) servoPIDout.e_sum = 40;
+  else if(servoPIDout.e_sum <= -40) servoPIDout.e_sum = -40;
   servoPIDout.e_prev = inletTempError;
   return PID_out;
 }
@@ -468,7 +464,7 @@ void TC3_Handler() {
   {
     TC->INTFLAG.bit.MC0 = 1;
     // Write callback here!!!
-    timerSampleFlag = true;
+    timerSampleCounter++;
     geyserTempUpdateCounter++;
     freezerTempUpdateCounter++;
     paramsRequestTick++;
