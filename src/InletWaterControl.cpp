@@ -19,41 +19,35 @@ void setup() {
 void loop() {
   // Loop code
 
-  // actuatePower(On, geyser);
-  actuatePower(On, freezer);
-  delay(2000);
-  // actuatePower(Off, geyser);
-  actuatePower(Off, freezer);
-  delay(2000);
-  // double angleCurr = getServoAngle();
-  // Serial.println(String(angleCurr) + " : " + String(ServoPwmTick));
-  // calibrateServos();
-  // if(mainControllerChannel.available() > 0) // If there is a message from the main controller
-  // {
-  //   readSerialMessage(mainControllerChannel.readStringUntil('\n'));
-  //   Serial.println("Message received from Main");
-  // }
-  // else if(Serial.available() > 0) // If there is a message from the computer via USB
-  // {
-  //   // Do something here
-  //   readSerialMessage(Serial.readStringUntil('\n'));
-  //   Serial.println("Message received from Computer");
-  //   Serial.flush();
-  // }
-  // else
-  // {
-  //   controlInletEnvironment(inletSetTemp);
-  //   // Check if encoder is in use
-  //   if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
-  //   {
-  //     menuLatch = !menuLatch;
-  //     encoderSwFlag = false;
-  //     Serial.println("Switch triggered...");
-  //     systemState = systemStates::tempSelect;
-  //     setTemperatureMenu();
-  //   }
-  //   updateDisplay(); // Update display
-  // }
+  double angleCurr = getServoAngle();
+  Serial.println(String(angleCurr) + " : " + String(ServoPwmTick));
+  calibrateServos();
+  if(mainControllerChannel.available() > 0) // If there is a message from the main controller
+  {
+    readSerialMessage(mainControllerChannel.readStringUntil('\n'));
+    Serial.println("Message received from Main");
+  }
+  else if(Serial.available() > 0) // If there is a message from the computer via USB
+  {
+    // Do something here
+    readSerialMessage(Serial.readStringUntil('\n'));
+    Serial.println("Message received from Computer");
+    Serial.flush();
+  }
+  else
+  {
+    controlInletEnvironment(inletSetTemp);
+    // Check if encoder is in use
+    if(encoderSwFlag && (millis() - encoderSwTick >= 50)) // Include debounce for switch
+    {
+      menuLatch = !menuLatch;
+      encoderSwFlag = false;
+      Serial.println("Switch triggered...");
+      systemState = systemStates::tempSelect;
+      setTemperatureMenu();
+    }
+    updateDisplay(); // Update display
+  }
 }
 
 /** Function description

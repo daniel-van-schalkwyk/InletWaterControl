@@ -15,8 +15,8 @@
 #define mainControllerChannel       Serial1
 #define geyserPowerSetPin           7
 #define geyserPowerResetPin         8
-#define freezerSetPin               13
-#define freezerResetPin             3
+#define freezerSetPin               3
+#define freezerResetPin             13
 #define tempBusPin                  4
 #define tempCalibratorPin           6
 // #define geyserValveFeedbackPin      13
